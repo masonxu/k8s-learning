@@ -78,8 +78,8 @@
 ## 概述
 本文用于记录作者在学习client-go informer时的一些过程和总结。因为是边看源码别学习，所以每个章节有很多源码附上，甚至有些代码会出现多次，便于最直接的了解实现原理。
 
-!!! note
-	本文中的代码是基于[client-go v0.24.0](https://github.com/kubernetes/client-go/tree/v0.24.0)
+> [!NOTE]
+> 本文中的代码是基于[client-go v0.24.0](https://github.com/kubernetes/client-go/tree/v0.24.0)
 
 
 ### 为什么要有informer?
@@ -94,8 +94,8 @@ informers实现了持续获取集群的所有资源对象、监听集群的资�
 
 在informers的使用上，通常每个GroupVersionResource（GVR）只实例化一个informer，但有时候我们在一个应用中往往会在多个地方对同一种资源对象都有informer的需求，所以就有了共享informer。可以通过使用SharedInformerFactory来实例化informers，这样本地内存缓存就只有一份，通知机制也只有一套，大大提高了效率，减少了资源浪费。
 
-!!! note 
-	如下代码所示，sharedInformerFactory里有一个informers map，每个type一个SharedIndexInformer。这个SharedIndexInformer就是今天的主题。
+> [!NOTE]
+> 如下代码所示，sharedInformerFactory里有一个informers map，每个type一个SharedIndexInformer。这个SharedIndexInformer就是今天的主题。
 
 ```go 
 type sharedInformerFactory struct {
@@ -168,12 +168,12 @@ Reflector的主要作用是：
 2. 从kube-apiserver中watch资源对象的变化，然后调用DeltaFIFO的Add/Update/Delete方法将object包装成Added/Updated/Deleted类型的Delta丢到DeltaFIFO中；
 3. 从Indexer里获取到所有资源对象，包装成Sync类型的Delta再次放到DeltaFIFO队列中（后面章节，我们会详解为什么要Resync）。
 
-!!! note  
-    从结构体sharedIndexInformer中，没有直接看到Reflector。在代码中，Reflector是藏在结构体controller中。
+> [!NOTE]
+> 从结构体sharedIndexInformer中，没有直接看到Reflector。在代码中，Reflector是藏在结构体controller中。
 
 
-!!! note 
-    Refelctor中的`store`属性在NewRelector时就确定了，它来自controller.Config.Queue, 而controller.Config在sharedIndexInformer.Run()中创建，Queue就是DeltaFIFO. DeltaFIFO 实现了Queue接口，而Queue接口包含了Store接口。
+> [!NOTE]
+>  Refelctor中的`store`属性在NewRelector时就确定了，它来自controller.Config.Queue, 而controller.Config在sharedIndexInformer.Run()中创建，Queue就是DeltaFIFO. DeltaFIFO 实现了Queue接口，而Queue接口包含了Store接口。
 ```go
 // k8s.io/client-go/tools/cache/reflector.go
 type Reflector struct {
@@ -341,11 +341,11 @@ controller.Run()方法New出Reflector之后会开启两个goroutine：
   - 1.将对应的Obj持久化到indexer中；
   - 2.调用sharedIndexInformer的OnAdd/OnUpdate/OnDelete方法来创建addNotification/updateNotification/deleteNotification, 并把这些xxxNotification分发到所有注册的processorListener中的一个无缓冲channel `addCh`中。
 
-  !!! note
-	  **这个无缓冲channel接收这个xxxNotification后，也就是processorListener接收到之后，什么时候处理，怎么处理的呢？** 
-	  首先我们先看看这些processorLisenter怎么来的？
-	  - 1. 我们的示例main方法中的`informer.AddEventHandler(handler ResourceEventHandler)`会根据我们自定义的handler并通过`newProcessListener(handler, resyncPeriod, determineResyncPeriod(resyncPeriod, s.resyncCheckPeriod), s.clock.Now(), initialBufferSize)`创建一个`processorListener`；
-	  - 2. 然后将该`processorListener`添加到`sharedIndexInformer.processor`中的`listeners`切片中。**但是这只是创建(注册)并没有开启这些listener**。其实是在sharedIndexInformer.Run方法中开启的，该方法会通过`wg.StartWithChannel(processorStopCh, s.processor.run)`遍历listeners切片中的`processorListener`并分别创建goroutine异步调用其pop和run方法（每个processorListener各两个goroutine，一个给pop，一个给run）详见[s.processor.run章节](#3224-sprocessorrun)。
+> [!NOTE]
+> **这个无缓冲channel接收这个xxxNotification后，也就是processorListener接收到之后，什么时候处理，怎么处理的呢？** 
+> 首先我们先看看这些processorLisenter怎么来的？
+> - 1. 我们的示例main方法中的`informer.AddEventHandler(handler ResourceEventHandler)`会根据我们自定义的handler并通过`newProcessListener(handler, resyncPeriod, determineResyncPeriod(resyncPeriod, s.resyncCheckPeriod), s.clock.Now(), initialBufferSize)`创建一个`processorListener`；
+> - 2. 然后将该`processorListener`添加到`sharedIndexInformer.processor`中的`listeners`切片中。**但是这只是创建(注册)并没有开启这些listener**。其实是在sharedIndexInformer.Run方法中开启的，该方法会通过`wg.StartWithChannel(processorStopCh, s.processor.run)`遍历listeners切片中的`processorListener`并分别创建goroutine异步调用其pop和run方法（每个processorListener各两个goroutine，一个给pop，一个给run）详见[s.processor.run章节](#3224-sprocessorrun)。
 
 ```go
 // k8s.io/client-go/tools/cache/controller.go
@@ -783,8 +783,8 @@ func (f *sharedInformerFactory) InformerFor(obj runtime.Object, newFunc internal
 	return informer
 }
 ```
-!!! note
-	<font color=red>`cmInformer.Informer()`除了返回一个sharedIndexInformer实例，在factory的InformFor方法中，还会将创建出来的这个shareIndexInformer实例放到factory的informer map中去，方便后续共享使用。</font> 
+> [!NOTE]  
+> <font color=red>`cmInformer.Informer()`除了返回一个sharedIndexInformer实例，在factory的InformFor方法中，还会将创建出来的这个shareIndexInformer实例放到factory的informer map中去，方便后续共享使用。</font> 
 
 上面configMapInformer.defaultInformer --> NewFilteredConfigMapInformer --> cache.NewSharedIndexInformer 创建shareIndexInformer实例，我们来具体看看这个实例。
 ```go
@@ -1012,8 +1012,8 @@ func (p *sharedProcessor) addListenerLocked(listener *processorListener) {
 }
 ```
 
-!!! note
-	到现在为止，我们初始化了sharedIndexInformer，sharedIndexInformer实例中的processor,indexer,listerWatcher字段都初始化好了，**唯独其中的controller（包括refelctor,deltafifo）还没有初始化**；controller将在informer启动中被初始化/实例化。
+> [!NOTE]  
+> 到现在为止，我们初始化了sharedIndexInformer，sharedIndexInformer实例中的processor,indexer,listerWatcher字段都初始化好了，**唯独其中的controller（包括refelctor,deltafifo）还没有初始化**；controller将在informer启动中被初始化/实例化。
 
 ### 3.2.启动过程
 关键点：
@@ -2160,8 +2160,8 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 	}
 }
 ```
-!!! note
-全量List之后，紧接着建个goroutine异步定时做Resync，最后是个大循环for一直在这做watch操作, 这就是reflector Run起来后一直做的`ListAndWatch`操作。即使ListAndWatch因为某种原因返回error，外层也有wait.BackoffUntil帮忙接着，重新进入`ListAndWatch`方法。
+> [!NOTE]  
+> 全量List之后，紧接着建个goroutine异步定时做Resync，最后是个大循环for一直在这做watch操作, 这就是reflector Run起来后一直做的`ListAndWatch`操作。即使ListAndWatch因为某种原因返回error，外层也有wait.BackoffUntil帮忙接着，重新进入`ListAndWatch`方法。
 下面我们看看watch阶段的具体步骤：
 ##### 4.3.3.1 r.listerWatcher.Watch(options)
 > 返回watch.inferface，实现就是StreamWatcher结构体
